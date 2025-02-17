@@ -1,0 +1,9 @@
+Data reader:
+
++ extract keys
++ cache keys
++- sample
++- read content
+- extract features
+- create bitmaps
+
