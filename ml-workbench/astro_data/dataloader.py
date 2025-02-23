@@ -47,8 +47,6 @@ class AstroS3Dataset(Dataset):
         self.transform = transform
         self.label_encoder = label_encoder
         self.encoded_labels = label_encoder.fit_transform(labels)
-        assert(len(self.encoded_labels) == len(labels))
-        print(len(labels))
 
     def __get_object_keys_by_label(self):
         """ Get object keys for all folders, either from cache or from S3 """
