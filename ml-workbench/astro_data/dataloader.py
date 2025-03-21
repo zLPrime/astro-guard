@@ -12,12 +12,18 @@ from typing import Tuple
 
 bucket_name = 'guard-01'
 endpoint_url='https://storage.yandexcloud.net'
-cache_file = 'data/objects_cache.json'
 cache_expiry = 86400 * 1000  # Cache expiry time in seconds (1000 days)
 items_per_label = 1000
 
 class AstroS3Dataset(Dataset):
-    def __init__(self, aws_access_key_id, aws_secret_access_key, transform, label_encoder, exclude_label=['.ipynb_checkpoints/']):
+    def __init__(self,
+                 aws_access_key_id,
+                 aws_secret_access_key,
+                 transform,
+                 label_encoder,
+                 exclude_label=['.ipynb_checkpoints/'],
+                 cache_path='astro_data/objects_cache.json'):
+        self.cache_path = cache_path
         session = boto3.session.Session()
         self.s3 = session.client(
             service_name='s3',
@@ -50,9 +56,9 @@ class AstroS3Dataset(Dataset):
 
     def __get_object_keys_by_label(self):
         """ Get object keys for all folders, either from cache or from S3 """
-        if cache_exists_and_valid():
+        if _cache_exists_and_valid(self.cache_path):
             print("Loading object keys from cache...")
-            return load_cache()
+            return _load_cache(self.cache_path)
         
         print("Fetching object keys from S3...")
         folders = self.__get_folders()
@@ -63,7 +69,7 @@ class AstroS3Dataset(Dataset):
             cache_data[folder] = self.__list_objects_by_prefix(folder)
         
         # Save to cache
-        save_cache(cache_data)
+        _save_cache(cache_data, self.cache_path)
         return cache_data
     
     def __get_folders(self):
@@ -105,12 +111,12 @@ class AstroS3Dataset(Dataset):
           print("S3 key", s3_key)
           raise
 
-def get_jd_magn_graph_dataset(aws_access_key_id, aws_secret_access_key, label_encoder, batch_size=32, shuffle=True):
+def get_jd_magn_graph_dataset(aws_access_key_id, aws_secret_access_key, label_encoder, cache_path=None):
     transform = transforms.Compose([
-        transforms.Lambda(get_jd_magn_graph),
+        transforms.Lambda(_get_jd_magn_graph),
         transforms.ToTensor()
     ])
-    return AstroS3Dataset(aws_access_key_id, aws_secret_access_key, transform, label_encoder)
+    return AstroS3Dataset(aws_access_key_id, aws_secret_access_key, transform, label_encoder, cache_path=cache_path)
 
 def get_train_test(dataset: Dataset, split_ratio=0.7, batch_size=32) -> Tuple[DataLoader, DataLoader]:
     train_size = int(split_ratio * len(dataset))
@@ -123,7 +129,7 @@ def get_train_test(dataset: Dataset, split_ratio=0.7, batch_size=32) -> Tuple[Da
 
     return train_loader, test_loader
 
-def get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
+def _get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
     x = df['jd']
     y = df['mag']
 
@@ -142,19 +148,19 @@ def get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
     image = Image.open(buf).convert('1')  # Directly to monochrome
     return image
 
-def cache_exists_and_valid():
+def _cache_exists_and_valid(cache_path):
     """ Check if the cache file exists and is still valid """
-    if os.path.exists(cache_file):
-        cache_age = time.time() - os.path.getmtime(cache_file)
+    if os.path.exists(cache_path):
+        cache_age = time.time() - os.path.getmtime(cache_path)
         return cache_age < cache_expiry
     return False
 
-def load_cache():
+def _load_cache(cache_path):
     """ Load the object keys from cache """
-    with open(cache_file, 'r') as f:
+    with open(cache_path, 'r') as f:
         return json.load(f)
 
-def save_cache(cache_data):
+def _save_cache(cache_data, cache_path):
     """ Save the object keys to cache """
-    with open(cache_file, 'w') as f:
+    with open(cache_path, 'w') as f:
         json.dump(cache_data, f)
