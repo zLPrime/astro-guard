@@ -15,6 +15,7 @@ def evaluate(model, dataloader, device='cuda'):
             _, preds = torch.max(outputs, 1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            del images
     
     return all_labels, all_preds
 

@@ -100,7 +100,6 @@ class AstroS3Dataset(Dataset):
     
     def __getitem__(self, idx):
         s3_key = self.s3_keys[idx]
-        assert isinstance(s3_key, str)
         get_object_response = self.s3.get_object(Bucket=bucket_name, Key=s3_key)
         try:
           table = pd.read_csv(get_object_response['Body'], skiprows=1)
@@ -124,8 +123,8 @@ def get_train_test(dataset: Dataset, split_ratio=0.7, batch_size=32) -> Tuple[Da
 
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, prefetch_factor=2)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, prefetch_factor=2)
 
     return train_loader, test_loader
 
