@@ -2,8 +2,10 @@ Data reader:
 
 + extract keys
 + cache keys
-+- sample
-+- read content
-- extract features
-- create bitmaps
++ sample
++ read content
++ extract features
++ create bitmaps
++ encapsulate module functions
 
+- eliminate memory leakage
