@@ -5,18 +5,19 @@ import os
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import time
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, random_split
 from io import BytesIO
 from PIL import Image
+from typing import Tuple
 
 bucket_name = 'guard-01'
 endpoint_url='https://storage.yandexcloud.net'
-cache_file = 'objects_cache.json'
+cache_file = 'data/objects_cache.json'
 cache_expiry = 86400 * 1000  # Cache expiry time in seconds (1000 days)
-items_per_label = 50000
+items_per_label = 1000
 
 class AstroS3Dataset(Dataset):
-    def __init__(self, aws_access_key_id, aws_secret_access_key, transform, exclude_label=['.ipynb_checkpoints/']):
+    def __init__(self, aws_access_key_id, aws_secret_access_key, transform, label_encoder, exclude_label=['.ipynb_checkpoints/']):
         session = boto3.session.Session()
         self.s3 = session.client(
             service_name='s3',
@@ -25,21 +26,27 @@ class AstroS3Dataset(Dataset):
             aws_secret_access_key=aws_secret_access_key
         )
         keys_by_label = self.__get_object_keys_by_label()
-        labels = list(keys_by_label.keys())
+        keys_by_label = {
+            key: [s for s in values if s.endswith('.csv')]
+            for key, values in keys_by_label.items()
+        }
+        total_labels = list(keys_by_label.keys())
         for el in exclude_label:
-            labels.remove(el)
+            total_labels.remove(el)
         self.s3_keys  = []
-        self.labels   = []
-        for label in labels:
+        labels   = []
+        for label in total_labels:
             elements_count = len(keys_by_label[label])
             if elements_count < items_per_label:
                 print(f"WARNING: The limit for items per class is set to {items_per_label}, but there are only {elements_count} elements in {label}.")
                 self.s3_keys += (keys_by_label[label])
-                self.labels += ([label] * elements_count)
+                labels += ([label] * elements_count)
             else:
                 self.s3_keys += (keys_by_label[label][:items_per_label])
-                self.labels += ([label] * items_per_label)
+                labels += ([label] * items_per_label)
         self.transform = transform
+        self.label_encoder = label_encoder
+        self.encoded_labels = label_encoder.fit_transform(labels)
 
     def __get_object_keys_by_label(self):
         """ Get object keys for all folders, either from cache or from S3 """
@@ -89,18 +96,32 @@ class AstroS3Dataset(Dataset):
         s3_key = self.s3_keys[idx]
         assert isinstance(s3_key, str)
         get_object_response = self.s3.get_object(Bucket=bucket_name, Key=s3_key)
-        table = pd.read_csv(get_object_response['Body'], skiprows=1)
-        data=self.transform(table)
-        label = self.labels[idx]
-        return data, label
+        try:
+          table = pd.read_csv(get_object_response['Body'], skiprows=1)
+          data=self.transform(table)
+          label = self.encoded_labels[idx]
+          return data, label
+        except:
+          print("S3 key", s3_key)
+          raise
 
-def get_jd_magn_graph_dataloader(aws_access_key_id, aws_secret_access_key, batch_size=32, shuffle=True):
+def get_jd_magn_graph_dataset(aws_access_key_id, aws_secret_access_key, label_encoder, batch_size=32, shuffle=True):
     transform = transforms.Compose([
         transforms.Lambda(get_jd_magn_graph),
         transforms.ToTensor()
     ])
-    dataset = AstroS3Dataset(aws_access_key_id, aws_secret_access_key, transform)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return AstroS3Dataset(aws_access_key_id, aws_secret_access_key, transform, label_encoder)
+
+def get_train_test(dataset: Dataset, split_ratio=0.7, batch_size=32) -> Tuple[DataLoader, DataLoader]:
+    train_size = int(split_ratio * len(dataset))
+    test_size = len(dataset) - train_size
+
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader
 
 def get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
     x = df['jd']
