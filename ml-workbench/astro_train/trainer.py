@@ -21,5 +21,6 @@ def astro_train(model, dataloader, epochs, device='cuda'):
             optimizer.step()
             
             running_loss += loss.item()
+            del images, labels
         
         print(f"\nEpoch {epoch+1}/{epochs}, Loss: {running_loss/len(dataloader)}")
