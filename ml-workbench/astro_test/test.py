@@ -1,4 +1,6 @@
 import torch
+from sklearn.metrics import accuracy_score, classification_report
+from tqdm import tqdm
 
 def evaluate(model, dataloader, device='cuda'):
     model.eval()
@@ -7,7 +9,7 @@ def evaluate(model, dataloader, device='cuda'):
     all_labels = []
     
     with torch.no_grad():
-        for images, labels in dataloader:
+        for images, labels in tqdm(dataloader):
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             _, preds = torch.max(outputs, 1)
@@ -16,5 +18,10 @@ def evaluate(model, dataloader, device='cuda'):
     
     return all_labels, all_preds
 
-if __name__ == "__main__":
-    main()
+def print_evaluate(model, data, label_encoder, device='cuda'):
+    labels, preds = evaluate(model, data, device)
+    decoded_labels = label_encoder.inverse_transform(labels)
+    decoded_preds = label_encoder.inverse_transform(preds)
+    
+    print("\nAccuracy:", accuracy_score(decoded_labels, decoded_preds))
+    print("Classification Report:\n", classification_report(decoded_labels, decoded_preds))
