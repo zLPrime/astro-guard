@@ -24,13 +24,10 @@ class AstroS3Dataset(Dataset):
                  exclude_label=['.ipynb_checkpoints/'],
                  cache_path='astro_data/objects_cache.json'):
         self.cache_path = cache_path
-        session = boto3.session.Session()
-        self.s3 = session.client(
-            service_name='s3',
-            endpoint_url=endpoint_url,
+        self.s3_session = boto3.session.Session(
             aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key
-        )
+            aws_secret_access_key=aws_secret_access_key)
+        self.s3_client = None
         keys_by_label = self.__get_object_keys_by_label()
         keys_by_label = {
             key: [s for s in values if s.endswith('.csv')]
@@ -54,6 +51,13 @@ class AstroS3Dataset(Dataset):
         self.label_encoder = label_encoder
         self.encoded_labels = label_encoder.fit_transform(labels)
 
+    def __initialize_s3_client(self):
+        if self.s3_client is None:
+            self.s3_client = self.s3_session.client(
+                service_name='s3',
+                endpoint_url=endpoint_url
+            )
+
     def __get_object_keys_by_label(self):
         """ Get object keys for all folders, either from cache or from S3 """
         if _cache_exists_and_valid(self.cache_path):
@@ -61,6 +65,7 @@ class AstroS3Dataset(Dataset):
             return _load_cache(self.cache_path)
         
         print("Fetching object keys from S3...")
+        self.__initialize_s3_client()
         folders = self.__get_folders()
         cache_data = {}
         
@@ -74,13 +79,13 @@ class AstroS3Dataset(Dataset):
     
     def __get_folders(self):
         """ Get all top-level folders in the bucket """
-        response = self.s3.list_objects_v2(Bucket=bucket_name, Delimiter='/')
+        response = self.s3_client.list_objects_v2(Bucket=bucket_name, Delimiter='/')
         return [prefix['Prefix'] for prefix in response.get('CommonPrefixes', [])]
 
     def __list_objects_by_prefix(self, prefix):
         """ List all objects under a given prefix (folder) """
         print(f"Listing objects under {prefix}")
-        paginator = self.s3.get_paginator('list_objects_v2')
+        paginator = self.s3_client.get_paginator('list_objects_v2')
         pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
         objects = []
         
@@ -100,15 +105,25 @@ class AstroS3Dataset(Dataset):
     
     def __getitem__(self, idx):
         s3_key = self.s3_keys[idx]
-        get_object_response = self.s3.get_object(Bucket=bucket_name, Key=s3_key)
+        self.__initialize_s3_client()
+        object_data = self.__get_object_data(s3_key)
         try:
-          table = pd.read_csv(get_object_response['Body'], skiprows=1)
-          data=self.transform(table)
-          label = self.encoded_labels[idx]
-          return data, label
+            with BytesIO(object_data) as object_stream:
+                table = pd.read_csv(object_stream, skiprows=1)
+                data=self.transform(table)
+                label = self.encoded_labels[idx]
+                return data, label
         except:
-          print("S3 key", s3_key)
-          raise
+            print("S3 key", s3_key)
+            raise
+
+    def __get_object_data(self, s3_key):
+        with self.s3_client.get_object(Bucket=bucket_name, Key=s3_key)['Body'] as body:
+            return body.read()
+    
+    def __del__(self):
+        if self.s3_client is not None:
+            self.s3_client.close()
 
 def get_jd_magn_graph_dataset(aws_access_key_id, aws_secret_access_key, label_encoder, cache_path=None):
     transform = transforms.Compose([
@@ -123,10 +138,18 @@ def get_train_test(dataset: Dataset, split_ratio=0.7, batch_size=32) -> Tuple[Da
 
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, prefetch_factor=2)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, prefetch_factor=2)
+    train_loader = _get_dataloader(batch_size, train_dataset)
+    test_loader = _get_dataloader(batch_size, test_dataset)
 
     return train_loader, test_loader
+
+def _get_dataloader(batch_size, train_dataset):
+    return DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        prefetch_factor=None)
 
 def _get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
     x = df['jd']
@@ -137,15 +160,15 @@ def _get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
     ax.axis('off')                  # Turn off axes for clean bitmap
 
     # Save the figure to a buffer in grayscale
-    buf = BytesIO()
-    fig.tight_layout(pad=0)
-    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
-    plt.close(fig)
-    buf.seek(0)
-
-    # Open the image directly as grayscale
-    image = Image.open(buf).convert('1')  # Directly to monochrome
-    return image
+    with BytesIO() as buf:
+        fig.tight_layout(pad=0)
+        plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+        plt.close(fig)
+        buf.seek(0)
+        
+        # Open the image directly as grayscale
+        image = Image.open(buf).convert('1')  # Directly to monochrome
+        return image
 
 def _cache_exists_and_valid(cache_path):
     """ Check if the cache file exists and is still valid """
