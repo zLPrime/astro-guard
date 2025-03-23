@@ -1,5 +1,7 @@
 import torch.optim as optim
 import torch.nn as nn
+import gc
+from torch import cuda
 from tqdm import tqdm
 
 def astro_train(model, dataloader, epochs, device='cuda'):
@@ -21,6 +23,9 @@ def astro_train(model, dataloader, epochs, device='cuda'):
             optimizer.step()
             
             running_loss += loss.item()
-            del images, labels
+            del images, labels, outputs, loss
+        
+        cuda.empty_cache()
+        gc.collect()
         
         print(f"\nEpoch {epoch+1}/{epochs}, Loss: {running_loss/len(dataloader)}")

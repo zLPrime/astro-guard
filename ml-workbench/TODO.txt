@@ -8,4 +8,6 @@ Data reader:
 + create bitmaps
 + encapsulate module functions
 
-- eliminate memory leakage
++ eliminate memory leakage
+- introduce data cache
+- change data representation (1-dimentional)
