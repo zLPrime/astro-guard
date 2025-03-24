@@ -13,7 +13,7 @@ def astro_train(model, dataloader, epochs, device='cuda'):
         model.train()
         running_loss = 0.0
         
-        for images, labels in tqdm(dataloader):
+        for i, (images, labels) in enumerate(tqdm(dataloader)):
             images, labels = images.to(device), labels.to(device)
             
             optimizer.zero_grad()
@@ -24,6 +24,9 @@ def astro_train(model, dataloader, epochs, device='cuda'):
             
             running_loss += loss.item()
             del images, labels, outputs, loss
+            if (i + 1) % 5 == 0:
+                cuda.empty_cache()
+                gc.collect()
         
         cuda.empty_cache()
         gc.collect()
