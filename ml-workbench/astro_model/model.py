@@ -34,3 +34,29 @@ class SimpleCNN(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+
+class JDLightCurve1DCNN(nn.Module):
+    def __init__(self, num_classes: int = 10):
+        super(JDLightCurve1DCNN, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=16, kernel_size=5, padding=2)
+        self.pool1 = nn.MaxPool1d(kernel_size=2)
+        
+        self.conv2 = nn.Conv1d(16, 32, kernel_size=5, padding=2)
+        self.pool2 = nn.MaxPool1d(kernel_size=2)
+        
+        self.conv3 = nn.Conv1d(32, 64, kernel_size=3, padding=1)
+        self.pool3 = nn.MaxPool1d(kernel_size=2)
+
+        # Calculate the flattened size after 3 poolings (400 → 200 → 100 → 50)
+        self.fc1 = nn.Linear(64 * 50, 128)
+        self.fc2 = nn.Linear(128, num_classes)
+
+    def forward(self, x):
+        x = self.pool1(F.relu(self.conv1(x)))  # (B, 16, 200)
+        x = self.pool2(F.relu(self.conv2(x)))  # (B, 32, 100)
+        x = self.pool3(F.relu(self.conv3(x)))  # (B, 64, 50)
+        x = x.view(x.size(0), -1)              # Flatten
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x

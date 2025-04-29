@@ -1,10 +1,12 @@
 import boto3
 import pandas as pd
+import numpy as np
 import json
 import os
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import time
+import torch
 from torch.utils.data import DataLoader, Dataset, random_split
 from io import BytesIO
 from PIL import Image
@@ -109,9 +111,10 @@ class AstroS3Dataset(Dataset):
         object_data = self.__get_object_data(s3_key)
         try:
             with BytesIO(object_data) as object_stream:
-                table = pd.read_csv(object_stream, skiprows=1)
+                table = pd.read_csv(object_stream, skiprows=1, usecols=['jd', 'mag'], dtype={'jd':'float32', 'mag':'float32'})
                 data=self.transform(table)
                 label = self.encoded_labels[idx]
+                del table
                 return data, label
         except:
             print("S3 key", s3_key)
@@ -129,6 +132,13 @@ def get_jd_magn_graph_dataset(aws_access_key_id, aws_secret_access_key, label_en
     transform = transforms.Compose([
         transforms.Lambda(_get_jd_magn_graph),
         transforms.ToTensor()
+    ])
+    return AstroS3Dataset(aws_access_key_id, aws_secret_access_key, transform, label_encoder, cache_path=cache_path)
+
+def get_jd_magn_1d_dataset(aws_access_key_id, aws_secret_access_key, label_encoder, cache_path=None):
+    transform = transforms.Compose([
+        transforms.Lambda(_get_jd_magn_1d),
+        #transforms.ToTensor()
     ])
     return AstroS3Dataset(aws_access_key_id, aws_secret_access_key, transform, label_encoder, cache_path=cache_path)
 
@@ -151,6 +161,9 @@ def _get_dataloader(batch_size, train_dataset):
         num_workers=0,
         prefetch_factor=None)
 
+def _get_array(df: pd.DataFrame):
+    return df.to_numpy(dtype='float32')
+
 def _get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
     x = df['jd']
     y = df['mag']
@@ -169,6 +182,26 @@ def _get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
         # Open the image directly as grayscale
         image = Image.open(buf).convert('1')  # Directly to monochrome
         return image
+
+def _get_jd_magn_1d(df: pd.DataFrame, width: int = 400):
+    x_vals = df['jd'].to_numpy()
+    y_vals = df['mag'].to_numpy()
+
+    if len(x_vals) < 2:
+        raise ValueError("Need at least two data points.")
+
+    # Normalize x to [0, 1] and interpolate y over fixed-width samples
+    x_norm = (x_vals - x_vals.min()) / (x_vals.max() - x_vals.min())
+    y_interp = np.interp(np.linspace(0, 1, width), x_norm, y_vals)
+
+    # Normalize magnitudes to [0, 255] (no inversion)
+    if np.isclose(y_interp.max(), y_interp.min()):
+        raise ValueError("Bad data")
+    
+    y_norm = (y_interp - y_interp.min()) / (y_interp.max() - y_interp.min())
+    grayscale_values = y_norm * 255  # No inversion: low mag = bright
+
+    return torch.tensor(y_norm, dtype=torch.float32).unsqueeze(0)
 
 def _cache_exists_and_valid(cache_path):
     """ Check if the cache file exists and is still valid """
