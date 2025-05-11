@@ -6,7 +6,6 @@ Machine learning system for classifying variable stars using time series data.
 
 The system implements:
 - **Automated processing** of raw data from S3 storage
-- **Feature extraction** (TSFresh statistical characteristics)
 - **Deep learning** on time series (1D CNN)
 
 ## 🛠 Technology Stack
