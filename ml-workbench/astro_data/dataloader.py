@@ -161,9 +161,6 @@ def _get_dataloader(batch_size, train_dataset):
         num_workers=0,
         prefetch_factor=None)
 
-def _get_array(df: pd.DataFrame):
-    return df.to_numpy(dtype='float32')
-
 def _get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
     x = df['jd']
     y = df['mag']
@@ -184,6 +181,8 @@ def _get_jd_magn_graph(df: pd.DataFrame) -> Image.Image:
         return image
 
 def _get_jd_magn_1d(df: pd.DataFrame, width: int = 400):
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.dropna(how='any', inplace=True)
     x_vals = df['jd'].to_numpy()
     y_vals = df['mag'].to_numpy()
 
@@ -194,12 +193,11 @@ def _get_jd_magn_1d(df: pd.DataFrame, width: int = 400):
     x_norm = (x_vals - x_vals.min()) / (x_vals.max() - x_vals.min())
     y_interp = np.interp(np.linspace(0, 1, width), x_norm, y_vals)
 
-    # Normalize magnitudes to [0, 255] (no inversion)
-    if np.isclose(y_interp.max(), y_interp.min()):
-        raise ValueError("Bad data")
+    if (np.isnan(y_interp).any() or np.isinf(y_interp).any() or
+        np.isclose(y_interp.max(), y_interp.min())):
+        raise ValueError("Bad data: NaNs, Infs, or flat signal")
     
     y_norm = (y_interp - y_interp.min()) / (y_interp.max() - y_interp.min())
-    grayscale_values = y_norm * 255  # No inversion: low mag = bright
 
     return torch.tensor(y_norm, dtype=torch.float32).unsqueeze(0)
 
