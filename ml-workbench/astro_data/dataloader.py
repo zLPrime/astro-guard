@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 import time
 import torch
+from joblib import Memory
 from torch.utils.data import DataLoader, Dataset, random_split
 from io import BytesIO
 from PIL import Image
@@ -16,6 +17,8 @@ bucket_name = 'guard-01'
 endpoint_url='https://storage.yandexcloud.net'
 cache_expiry = 86400 * 1000  # Cache expiry time in seconds (1000 days)
 items_per_label = 1000
+
+memory = Memory(location='object_cache')
 
 class AstroS3Dataset(Dataset):
     def __init__(self,
@@ -121,8 +124,11 @@ class AstroS3Dataset(Dataset):
             raise
 
     def __get_object_data(self, s3_key):
-        with self.s3_client.get_object(Bucket=bucket_name, Key=s3_key)['Body'] as body:
-            return body.read()
+        @memory.cache
+        def get_object_data(s3_key):
+            with self.s3_client.get_object(Bucket=bucket_name, Key=s3_key)['Body'] as body:
+                return body.read()
+        return get_object_data(s3_key)
     
     def __del__(self):
         if self.s3_client is not None:
