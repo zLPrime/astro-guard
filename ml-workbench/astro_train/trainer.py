@@ -1,8 +1,9 @@
-import torch
 import torch.optim as optim
 import torch.nn as nn
+import torch
 import gc
 import csv
+import os
 from torch import cuda
 from tqdm import tqdm
 
@@ -39,19 +40,21 @@ def astro_train(model, dataloader, epochs, device='cuda'):
 def train_and_monitor(
     model,
     train_loader,
-    val_loader=None,
     epochs=10,
+    device=torch.device('cpu'),
     optimizer=None,
     criterion=None,
-    device='cuda',
     log_interval=10,
-    log_file='training_log.csv'
+    patience=5,
+    log_file='training_log.csv',
+    val_loader=None
 ):
     model.to(device)
     optimizer = optimizer or optim.Adam(model.parameters(), lr=0.001)
     criterion = criterion or nn.CrossEntropyLoss()
 
     best_val_acc = 0.0
+    #TODO make this adjustable
     best_model_path = 'best_model.pth'
 
     # Prepare logging
@@ -60,6 +63,8 @@ def train_and_monitor(
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
 
+    best_val_loss = float('inf')
+    epochs_without_improvement = 0
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
@@ -113,7 +118,13 @@ def train_and_monitor(
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
                 torch.save(model.state_dict(), best_model_path)
+                epochs_without_improvement = 0
                 print(f'Best model saved with accuracy: {val_acc:.2f}%')
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= patience:
+                    print(f"Early stopping triggered at epoch {epoch+1}")
+                    break
 
         # Save metrics to log
         with open(log_file, mode='a', newline='') as f:
