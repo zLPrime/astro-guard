@@ -18,7 +18,7 @@ endpoint_url='https://storage.yandexcloud.net'
 cache_expiry = 86400 * 1000  # Cache expiry time in seconds (1000 days)
 items_per_label = 1000
 
-memory = Memory(location='object_cache')
+memory = Memory(location='object_cache', verbose=0)
 
 class AstroS3Dataset(Dataset):
     def __init__(self,
