@@ -16,9 +16,15 @@ Data reader:
 
 Training:
 
-- accept optimizer and other
-- early stop
-- save best model & trainer state
++ accept optimizer and other
++ early stop
++ save best model & trainer state
+- make testing score adjustable
+-- let it accept multiple scores and pick one as stop criterion (can be plotted afterwards)
+
+Testing:
+
+- think about different benchmarks (acc, f1, ...)
 
 Model:
 
