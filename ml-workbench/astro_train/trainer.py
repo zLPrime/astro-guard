@@ -45,17 +45,16 @@ def train_and_monitor(
     optimizer=None,
     criterion=None,
     log_interval=10,
-    patience=5,
     log_file='training_log.csv',
-    val_loader=None
+    val_loader=None,
+    best_model_path=None,
+    patience=5
 ):
     model.to(device)
     optimizer = optimizer or optim.Adam(model.parameters(), lr=0.001)
     criterion = criterion or nn.CrossEntropyLoss()
 
     best_val_acc = 0.0
-    #TODO make this adjustable
-    best_model_path = 'best_model.pth'
 
     # Prepare logging
     fieldnames = ['epoch', 'train_loss', 'train_acc', 'val_loss', 'val_acc']
@@ -63,7 +62,6 @@ def train_and_monitor(
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
 
-    best_val_loss = float('inf')
     epochs_without_improvement = 0
     for epoch in range(epochs):
         model.train()

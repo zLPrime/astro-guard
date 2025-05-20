@@ -195,8 +195,7 @@ def get_jd_magn_graph_dataset(aws_access_key_id, aws_secret_access_key, label_en
 
 def get_jd_magn_1d_dataset(aws_access_key_id, aws_secret_access_key, label_encoder, cache_path=None):
     transform = transforms.Compose([
-        transforms.Lambda(_get_jd_magn_1d),
-        #transforms.ToTensor()
+        transforms.Lambda(_get_jd_magn_1d)
     ])
     return AstroS3Dataset(aws_access_key_id, aws_secret_access_key, transform, label_encoder, cache_path=cache_path)
 
@@ -211,9 +210,9 @@ def get_train_test(dataset: Dataset, split_ratio=0.7, batch_size=32) -> Tuple[Da
 
     return train_loader, test_loader
 
-def _get_dataloader(batch_size, train_dataset):
+def _get_dataloader(batch_size, dataset):
     return DataLoader(
-        train_dataset,
+        dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=0,
