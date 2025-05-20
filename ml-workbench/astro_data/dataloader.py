@@ -53,7 +53,6 @@ class AstroS3Dataset(Dataset):
                 self.s3_keys += (keys_by_label[label][:items_per_label])
                 labels += ([label] * items_per_label)
         self.transform = transform
-        self.label_encoder = label_encoder
         self.encoded_labels = label_encoder.fit_transform(labels)
 
     def __initialize_s3_client(self):
@@ -133,6 +132,59 @@ class AstroS3Dataset(Dataset):
     def __del__(self):
         if self.s3_client is not None:
             self.s3_client.close()
+
+class AstroFileDataset(Dataset):
+    def __init__(self,
+                 root_dir,
+                 transform,
+                 label_encoder,
+                 items_per_label=1000):
+        """
+        Args:
+            root_dir (str): Root directory containing labeled folders with CSV files.
+            transform (callable): Function to transform the loaded DataFrame into model-ready format.
+            label_encoder (LabelEncoder): Optional external label encoder. If None, a new one is created.
+            items_per_label (int): Max number of items to load per label.
+        """
+        self.root_dir = root_dir
+        self.transform = transform
+
+        self.file_paths = []
+        labels = []
+
+        total_labels = [folder for folder in os.listdir(root_dir)
+                        if os.path.isdir(os.path.join(root_dir, folder)) and folder not in exclude_label]
+
+        for label in total_labels:
+            label_path = os.path.join(root_dir, label)
+            all_files = [os.path.join(label_path, f) for f in os.listdir(label_path)
+                         if f.endswith('.csv')]
+            n_files = len(all_files)
+            if n_files < items_per_label:
+                print(f"WARNING: Only {n_files} items in label '{label}', less than requested {items_per_label}")
+                selected_files = all_files
+            else:
+                selected_files = all_files[:items_per_label]
+            self.file_paths.extend(selected_files)
+            labels.extend([label] * len(selected_files))
+
+        self.encoded_labels = label_encoder.fit_transform(labels)
+
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self, idx):
+        file_path = self.file_paths[idx]
+        try:
+            df = pd.read_csv(file_path, skiprows=1, usecols=['jd', 'mag'],
+                             dtype={'jd': 'float32', 'mag': 'float32'})
+            data = self.transform(df)
+            label = self.encoded_labels[idx]
+            del df
+            return data, label
+        except Exception as e:
+            print(f"Error loading file {file_path}: {e}")
+            raise
 
 def get_jd_magn_graph_dataset(aws_access_key_id, aws_secret_access_key, label_encoder, cache_path=None):
     transform = transforms.Compose([
