@@ -7,7 +7,29 @@ Data reader:
 + extract features
 + create bitmaps
 + encapsulate module functions
-
 + eliminate memory leakage
-- introduce data cache
-- change data representation (1-dimentional)
++ introduce data cache
++ change data representation (1-dimentional)
+- shuffle objects
+- augment data
+-- sample
+++ pick a channel
+- add more nonvarables
++ add magn_err
++ try other sizes
+
+Training:
+
++ accept optimizer and other
++ early stop
++ save best model & trainer state
+- make testing score adjustable
+-- let it accept multiple scores and pick one as stop criterion (can be plotted afterwards)
+
+Testing:
+
+- think about different benchmarks (acc, f1, ...)
+
+Model:
+
+- dropout
