@@ -12,7 +12,11 @@ Data reader:
 + change data representation (1-dimentional)
 - shuffle objects
 - augment data
+-- sample
+++ pick a channel
 - add more nonvarables
++ add magn_err
++ try other sizes
 
 Training:
 
