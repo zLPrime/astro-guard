@@ -45,10 +45,10 @@ def train_and_monitor(
     optimizer=None,
     criterion=None,
     log_interval=10,
+    patience=5,
     log_file='training_log.csv',
     val_loader=None,
-    best_model_path=None,
-    patience=5
+    best_model_path=None
 ):
     model.to(device)
     optimizer = optimizer or optim.Adam(model.parameters(), lr=0.001)
