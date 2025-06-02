@@ -1,0 +1,10 @@
+git+https://github.com/isadoranun/FATS@aa81ce7f68d137798126b6e425dd069c3b4fde3a
+boto3==1.35.81
+imbalanced-learn==0.13.0
+matplotlib==3.9.2
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.6.1
+seaborn==0.13.2
+skypatrol==0.6.19
+tensorflow==2.16.1
