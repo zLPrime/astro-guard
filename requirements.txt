@@ -1,0 +1,4 @@
+numpy==1.26.4
+astropy==7.0.1
+astroquery==0.4.9.post1
+photutils==1.12.0
