@@ -11,7 +11,11 @@ import astropy.units as u
 import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy.io import fits
+from astroquery.exceptions import NoResultsWarning
 from astropy.stats import sigma_clipped_stats
+from astropy import conf
+conf.max_lines = -1 
+conf.max_width = -1 
 from astropy.table import Column, QTable
 from astropy.wcs import WCS, FITSFixedWarning, NoWcsKeywordsFoundError
 from astroquery.gaia import Gaia
@@ -23,7 +27,7 @@ from photutils.detection import DAOStarFinder
 
 logging.getLogger("astroquery").setLevel(logging.WARNING)
 
-
+warnings.filterwarnings("ignore", category=NoResultsWarning)
 warnings.filterwarnings("ignore", category=FITSFixedWarning)
 warnings.filterwarnings(
     "ignore", category=UserWarning, message=".*truncated right side string.*"
@@ -87,13 +91,13 @@ def check_wcs(header):
         )
 
 
-def check_catalogs(ra_deg, dec_deg, search_radius=5 * u.arcsec, delay=1):
+def check_catalogs(ra_deg, dec_deg, search_radius=5 * u.arcsec, catalogs=None):
     """Проверка наличия объектов в каталогах Gaia DR3 и VSX.
 
     Args:
         ra_deg, dec_deg (float): Координаты в градусах (ICRS).
         search_radius: Радиус поиска (по умолчанию 5 угл. секунд).
-        delay (int): Задержка между запросами в секундах (для ограничения нагрузки). По умолчанию 1.
+        catalogs (list): Список каталогов для проверки. Если None, проверяются все.
 
     Returns:
         results (dict): Словарь с ключом - имя каталога, значение - имя найденного объекта.
@@ -101,114 +105,116 @@ def check_catalogs(ra_deg, dec_deg, search_radius=5 * u.arcsec, delay=1):
            а также из каталога Gaia DR3 https://gea.esac.esa.int/archive/documentation/GDR3/Gaia_archive/chap_datamodel/sec_dm_main_source_catalogue/ssec_dm_gaia_source.html
     """
 
-    results = {
+    # Все доступные каталоги
+    all_catalogs = {
         "Gaia DR3": ("Not checked"),
         "VSX": ("Not checked"),
         "SIMBAD": ("Not checked"),
         "Pan-STARRS": ("Not checked"),
         "Hipparcos": ("Not checked")
     }
+    
+    # Если не указаны конкретные каталоги, используем все
+    if catalogs is None:
+        catalogs = list(all_catalogs.keys())
+    
+    # Инициализация результатов только для выбранных каталогов
+    results = {cat: all_catalogs[cat] for cat in catalogs}
 
     coord = SkyCoord(ra=ra_deg, dec=dec_deg, unit=(u.deg, u.deg), frame='fk5')
-
-    # try:
-    #     # Проверка Gaia DR3
-    #     time.sleep(delay)
-    #     gaia_job = Gaia.cone_search_async(coordinate=coord, radius=search_radius)
-    #     gaia_result = gaia_job.get_results()
-
-    #     if gaia_result and "source_id" in gaia_result.colnames:
-    #         results["Gaia DR3"] = str(gaia_result["source_id"][0])[:20]
-    #     else:
-    #         results["Gaia DR3"] = "Not found"
-    # except Exception:
-    #     results["Gaia DR3"] = "Ошибка"
         
-    try:
-        time.sleep(delay)
-        gaia_job = Gaia.cone_search_async(coordinate=coord, radius=search_radius)
-        gaia_result = gaia_job.get_results()
+    # Проверка Gaia DR3
+    if "Gaia DR3" in catalogs:
+        try:
+            time.sleep(1)
+            gaia_job = Gaia.cone_search_async(coordinate=coord, radius=search_radius)
+            gaia_result = gaia_job.get_results()
 
-        if gaia_result and "source_id" in gaia_result.colnames:
-            if len(gaia_result["source_id"]) > 0:
-                source_id = gaia_result["source_id"][0].astype(str)
-                results["Gaia DR3"] = source_id[:20]
+            if gaia_result and "source_id" in gaia_result.colnames:
+                if len(gaia_result["source_id"]) > 0:
+                    source_id = gaia_result["source_id"][0].astype(str)
+                    results["Gaia DR3"] = source_id[:20]
+                else:
+                    results["Gaia DR3"] = "Not found"
             else:
                 results["Gaia DR3"] = "Not found"
-        else:
-            results["Gaia DR3"] = "Not found"
-    except Exception:
-        results["Gaia DR3"] = "Ошибка"
+        except Exception:
+            results["Gaia DR3"] = "Ошибка"
 
-    try:
-        # Проверка VSX
-        time.sleep(delay)
-        vsx_result = Vizier.query_region(
-            coord, radius=search_radius, catalog="B/vsx/vsx"
-        )
+    # Проверка VSX
+    if "VSX" in catalogs:
+        try:
+            time.sleep(1)
+            vsx_result = Vizier.query_region(
+                coord, radius=search_radius, catalog="B/vsx/vsx"
+            )
 
-        if vsx_result and "Name" in vsx_result[0].colnames:
-            results["VSX"] = vsx_result[0]["Name"][0].strip()[:30]
-        else:
-            results["VSX"] = "Not found"
-    except Exception:
-        results["VSX"] = "Ошибка"
+            if vsx_result and "Name" in vsx_result[0].colnames:
+                results["VSX"] = vsx_result[0]["Name"][0].strip()[:30]
+            else:
+                results["VSX"] = "Not found"
+        except Exception:
+            results["VSX"] = "Ошибка"
         
         
-    try:
-        # Поиск в SIMBAD
-        time.sleep(delay)
-        simbad_result = Simbad.query_region(coord, radius=search_radius)
-        if simbad_result and len(simbad_result) > 0:
-            results["SIMBAD"] = simbad_result["main_id"][0].strip()[:30]
-        else:
-            results["SIMBAD"] = "Not found"
-    except Exception:
-        results["SIMBAD"] = "Ошибка"
+    # Поиск в SIMBAD
+    if "SIMBAD" in catalogs:
+        try:
+            time.sleep(1)
+            simbad_result = Simbad.query_region(coord, radius=search_radius)
+            if simbad_result and len(simbad_result) > 0:
+                results["SIMBAD"] = simbad_result["main_id"][0].strip()[:30]
+            else:
+                results["SIMBAD"] = "Not found"
+        except Exception:
+            results["SIMBAD"] = "Ошибка"
         
         
-    try:
-        # поиск в Pan-STARRS через MAST
-        time.sleep(delay)
-        panstarrs_result = Catalogs.query_region(
-            coord, 
-            radius=search_radius,
-            catalog="Panstarrs",  # Указание каталога явно
-            data_release="dr2"
-        )
-        if panstarrs_result and len(panstarrs_result) > 0:
-            results["Pan-STARRS"] = str(panstarrs_result["objID"][0])[:20]
-        else:
-            results["Pan-STARRS"] = "Not found"
-    except Exception:
-        results["Pan-STARRS"] = "Ошибка"
+    # Поиск в Pan-STARRS
+    if "Pan-STARRS" in catalogs:
+        try:
+            time.sleep(1)
+            panstarrs_result = Catalogs.query_region(
+                coord, 
+                radius=search_radius,
+                catalog="Panstarrs",
+                data_release="dr2"
+            )
+            if panstarrs_result and len(panstarrs_result) > 0:
+                results["Pan-STARRS"] = str(panstarrs_result["objID"][0])[:20]
+            else:
+                results["Pan-STARRS"] = "Not found"
+        except Exception:
+            results["Pan-STARRS"] = "Ошибка"
         
     # Hipparcos (I/239/hip_main)
-    try:
-        time.sleep(delay)
-        hip_result = Vizier.query_region(
-            coord, 
-            radius=search_radius, 
-            catalog="I/239/hip_main",  # Hipparcos Main Catalogue
-            cache=False
-        )
-        if hip_result and "HIP" in hip_result[0].colnames:
-            results["Hipparcos"] = str(hip_result[0]["HIP"][0])[:20]
-        else:
-            results["Hipparcos"] = "Not found"
-    except Exception:
-        results["Hipparcos"] = "Ошибка"
+    if "Hipparcos" in catalogs:
+        try:
+            time.sleep(1)
+            hip_result = Vizier.query_region(
+                coord, 
+                radius=search_radius, 
+                catalog="I/239/hip_main",
+                cache=False
+            )
+            if hip_result and "HIP" in hip_result[0].colnames:
+                results["Hipparcos"] = str(hip_result[0]["HIP"][0])[:20]
+            else:
+                results["Hipparcos"] = "Not found"
+        except Exception:
+            results["Hipparcos"] = "Ошибка"
 
     return results
 
 
-def find_stars(data, fwhm=3.0, threshold=5.0):
+def find_stars(data, fwhm=3.0, threshold=5.0, roundlo=-0.5):
     """Находит звёзды на снимке.
 
     Args:
         data (array or astropy.io.fits.hdu.base.DELAYED): Данные в HDU.
         fwhm (float): Полуширина главной оси ядра Гаусса в единицах пикселе (по умолчанию 3.0).
         threshold (float): Пороговое значение (по умолчанию 5.0).
+        roundlo (float): Нижний порог круглости звезды (по умолчанию -0.5).
 
     Raises:
         ValueError: Звезды не обнаружены на данном снимке.
@@ -243,7 +249,7 @@ def find_stars(data, fwhm=3.0, threshold=5.0):
     mean, median, std = sigma_clipped_stats(data, sigma=3.0)
 
     # Поиск источников
-    daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold * std, roundlo=0)
+    daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold * std, roundlo=roundlo)
     sources = daofind(data - median)
 
     if len(sources) == 0:
@@ -290,21 +296,28 @@ def pixel_to_wcs(sources, header):
     return sources
 
 
-def check_catalogs_add2table(sources, search_radius=5 * u.arcsec, request_delay=1):
+def check_catalogs_add2table(sources, search_radius=5 * u.arcsec, catalogs=None):
     """Проверяет наличие объектов в каждом каталоге и добавляет результат в таблицу.
 
     Args:
         sources (QTable): Таблица с международной системой координат.
         search_radius: Радиус поиска (по умолчанию 5 угл. секунд).
-        request_delay (int): Задержка между запросами в секундах (для ограничения нагрузки). По умолчанию 1.
+        catalogs (list): Список каталогов для проверки. Если None, проверяются все.
 
     Returns:
-        sources (QTable): Таблица с добавлением новых колонок Gaia DR3 и VSX, в которых отображен результат поиска по каталогу.
+        sources (QTable): Таблица с добавлением колонок для выбранных каталогов.
     """
 
-    # Добавление колонок для результатов
-    for colname, length in [("Gaia DR3", 30), ("VSX", 30), ("SIMBAD", 30), 
-                            ("Pan-STARRS", 30), ("Hipparcos", 30)]:
+    # Все доступные каталоги
+    all_catalogs = ["Gaia DR3", "VSX", "SIMBAD", "Pan-STARRS", "Hipparcos"]
+    
+    # Если не указаны конкретные каталоги, используем все
+    if catalogs is None:
+        catalogs = all_catalogs
+    
+    # Добавление колонок только для выбранных каталогов
+    for colname in catalogs:
+        length = 30  # Максимальная длина строки
         sources.add_column(
             Column(
                 data=np.full(len(sources), "Not found", dtype=f"U{length}"),
@@ -319,7 +332,9 @@ def check_catalogs_add2table(sources, search_radius=5 * u.arcsec, request_delay=
 
         try:
             result = check_catalogs(
-                ra, dec, search_radius=search_radius, delay=request_delay
+                ra, dec, 
+                search_radius=search_radius,
+                catalogs=catalogs
             )
             for catalog, value in result.items():
                 sources[catalog][idx] = value[: sources[catalog].dtype.itemsize // 4]
@@ -399,36 +414,107 @@ def get_quantity(prompt, default=None):
         
         except (ValueError, TypeError):
             print("\nОшибка формата. Пример: '3.0 arcsec'")
+            
 
+def get_catalog_selection():
+    """Запрашивает у пользователя выбор каталогов для проверки."""
+    
+    available_catalogs = {
+        "1": "Gaia DR3",
+        "2": "VSX",
+        "3": "SIMBAD",
+        "4": "Pan-STARRS",
+        "5": "Hipparcos"
+    }
+    
+    print("\nДоступные каталоги для проверки:")
+    for num, cat in available_catalogs.items():
+        print(f"{num}. {cat}")
+    
+    print("\nВведите номера каталогов через запятую (например '1,2,3')")
+    print("Или нажмите Enter для проверки всех каталогов")
+    
+    while True:
+        user_input = input("Ваш выбор: ").strip()
+        
+        if not user_input:
+            return None  # Проверять все каталоги
+        
+        try:
+            selected = []
+            for num in user_input.split(','):
+                num = num.strip()
+                if num in available_catalogs:
+                    selected.append(available_catalogs[num])
+                else:
+                    raise ValueError(f"Неизвестный номер каталога: {num}")
+            
+            if not selected:
+                raise ValueError("Не выбрано ни одного каталога")
+                
+            return selected
+            
+        except ValueError as e:
+            print(f"Ошибка: {str(e)}. Попробуйте снова.")
+            
 
-def display_total_results(table):
-    """Демонстрирует в виде таблицы результаты поиска звёзд в каталогах."""
-
+def display_total_results(table, catalogs=None):
+    """Демонстрирует в виде таблицы результаты поиска звёзд в каталогах.
+    
+    Args:
+        table (QTable): Таблица с результатами поиска
+        catalogs (list): Список выбранных каталогов. Если None, учитываются все.
+    """
+    
+    # Все доступные каталоги
+    all_catalogs = ["Gaia DR3", "VSX", "SIMBAD", "Pan-STARRS", "Hipparcos"]
+    
+    # Если не указаны конкретные каталоги, используем все
+    if catalogs is None:
+        catalogs = all_catalogs
+    
+    # Проверяем, какие каталоги действительно есть в таблице
+    available_in_table = [cat for cat in catalogs if cat in table.colnames]
+    
+    # Собираем данные в списки перед созданием таблицы
+    stats = ["Всего найдено звёзд", ""]
+    counts = [len(table), ""]
+    
+    # Добавляем статистику по каждому каталогу
+    for catalog in available_in_table:
+        found = ((table[catalog] != "Not found") & (table[catalog] != "Ошибка")).sum()
+        stats.append(f"Найдено в {catalog}")
+        counts.append(found)
+    
+    # Добавляем статистику по не найденным объектам
+    not_found_condition = None
+    for catalog in available_in_table:
+        if not_found_condition is None:
+            not_found_condition = (table[catalog] == "Not found")
+        else:
+            not_found_condition &= (table[catalog] == "Not found")
+    
+    if not_found_condition is not None:
+        stats.append("Не найдено ни в одном каталоге")
+        counts.append(not_found_condition.sum())
+    
+    # Добавляем статистику по ошибкам
+    error_condition = None
+    for catalog in available_in_table:
+        if error_condition is None:
+            error_condition = (table[catalog] == "Ошибка")
+        else:
+            error_condition |= (table[catalog] == "Ошибка")
+    
+    if error_condition is not None:
+        stats.append("Ошибок при выполнении")
+        counts.append(error_condition.sum())
+    
+    # Создаем таблицу из собранных данных
     report = QTable()
-    report["Статистика"] = [
-        "Всего найдено звёзд,",
-        "из которых:",
-        "Найдено в каталоге Gaia",
-        "Найдено в каталоге VSX",
-        "Не найдено ни в одном каталоге",
-        "Ошибок при выполнении",
-    ]
-    report["Количество"] = [
-        len(table),
-        "",
-        (
-            (table["Gaia DR3"] != "Not found")
-            & (table["Gaia DR3"] != "Ошибка")
-        ).sum(),
-        (
-            (table["VSX"] != "Not found") & (table["VSX"] != "Ошибка")
-        ).sum(),
-        ((table["Gaia DR3"] == "Not found") & (table["VSX"] == "Not found")).sum(),
-        (
-            (table["Gaia DR3"] == "Ошибка")
-            | (table["VSX"] == "Ошибка")
-        ).sum(),
-    ]
+    report["Статистика"] = stats
+    report["Количество"] = counts
+    
     print(report)
 
 
@@ -498,6 +584,10 @@ def main():
                     "\nТеперь введите пороговое значение (threshold) для обнаружения звезд на снимке,",
                     5.0,
                 ),
+                "roundlo": get_number(
+                    "\nВведите нижний порог круглости звезды (roundlo),",
+                    -0.5,
+                ),
             }
 
             catalog_params = {
@@ -505,10 +595,7 @@ def main():
                     "\nЗадайте радиус вокруг координат для поиска звёзд в каталогах через пробел, допустимые единицы измерения - arcsec, arcmin, deg. Например, 5.0 arcsec, 2.0 deg, ...",
                     "5.0 arcsec",
                 ),
-                "request_delay": get_number(
-                    "\nВведите время задержки между запросами в секундах (для ограничения нагрузки),",
-                    1,
-                ),
+                "catalogs": get_catalog_selection()
             }
 
             print("\nОбработка началась. Ожидайте...")
@@ -524,7 +611,7 @@ def main():
             # Выведем полученные результаты
             print("\nПервые 5 строк полученной таблицы: \n", sources[0:5])
             print("\n")
-            display_total_results(sources)
+            display_total_results(sources, catalog_params.get("catalogs"))
 
             # Запрос на сохранение таблицы с результатами в формате csv
             while True:
@@ -548,6 +635,7 @@ class App(tk.Tk):
         self.title("📡 Анализатор астрономических каталогов")
         self.geometry("1100x850")
         self.current_hdul = None
+        self.last_results = None
         
         # Настройка цветовой схемы
         self.colors = {
@@ -668,6 +756,9 @@ class App(tk.Tk):
         self.threshold_entry = ttk.Entry(detect_frame, width=10)
         self.threshold_entry.grid(row=1, column=1, padx=5, pady=2, sticky='w')
 
+        ttk.Label(detect_frame, text="Круглость (min):").grid(row=2, column=0, padx=5, pady=2, sticky='e')
+        self.roundlo_entry = ttk.Entry(detect_frame, width=10)
+        self.roundlo_entry.grid(row=2, column=1, padx=5, pady=2, sticky='w')
 
         # Секция каталогов
         catalog_frame = ttk.LabelFrame(
@@ -676,10 +767,36 @@ class App(tk.Tk):
         )
         catalog_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
 
-        # Сетка каталогов
-        ttk.Label(catalog_frame, text="Радиус:").grid(row=0, column=0, padx=5, pady=2, sticky='e')
+        # Фрейм для выбора каталогов
+        catalog_select_frame = ttk.Frame(catalog_frame)
+        catalog_select_frame.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
+
+        ttk.Label(catalog_select_frame, text="Каталоги:").pack(side=tk.LEFT, padx=5)
+        
+        # Создаем переменные для чекбоксов каталогов
+        self.catalog_vars = {
+            'Gaia DR3': tk.BooleanVar(value=True),
+            'VSX': tk.BooleanVar(value=True),
+            'SIMBAD': tk.BooleanVar(value=False),
+            'Pan-STARRS': tk.BooleanVar(value=False),
+            'Hipparcos': tk.BooleanVar(value=False)
+        }
+        
+        # Создаем чекбоксы для каждого каталога
+        for catalog in self.catalog_vars:
+            cb = ttk.Checkbutton(
+                catalog_select_frame,
+                text=catalog,
+                variable=self.catalog_vars[catalog],
+                onvalue=True,
+                offvalue=False
+            )
+            cb.pack(side=tk.LEFT, padx=2)
+
+        # Сетка каталогов (радиус и единицы измерения)
+        ttk.Label(catalog_frame, text="Радиус:").grid(row=1, column=0, padx=5, pady=2, sticky='e')
         self.radius_entry = ttk.Entry(catalog_frame, width=10)
-        self.radius_entry.grid(row=0, column=1, padx=5, pady=2, sticky='w')
+        self.radius_entry.grid(row=1, column=1, padx=5, pady=2, sticky='w')
 
         self.radius_units = ttk.Combobox(
             catalog_frame,
@@ -687,12 +804,7 @@ class App(tk.Tk):
             width=8,
             state="readonly"
         )
-        self.radius_units.grid(row=0, column=2, padx=5, pady=2, sticky='w')
-
-        ttk.Label(catalog_frame, text="Задержка:").grid(row=1, column=0, padx=5, pady=2, sticky='e')
-        self.delay_entry = ttk.Entry(catalog_frame, width=10)
-        self.delay_entry.grid(row=1, column=1, padx=5, pady=2, sticky='w')
-
+        self.radius_units.grid(row=1, column=2, padx=5, pady=2, sticky='w')
 
         # Управление
         control_frame = ttk.Frame(main_frame)
@@ -747,9 +859,9 @@ class App(tk.Tk):
     def set_defaults(self):
         self.fwhm_entry.insert(0, "3.0")
         self.threshold_entry.insert(0, "5.0")
+        self.roundlo_entry.insert(0, "-0.5") 
         self.radius_entry.insert(0, "5.0")
         self.radius_units.current(0)
-        self.delay_entry.insert(0, "1")
 
     def browse_file(self):
         filepath = filedialog.askopenfilename(
@@ -786,8 +898,7 @@ class App(tk.Tk):
             (self.hdu_selector, "Выберите HDU"),
             (self.fwhm_entry, "Введите FWHM"),
             (self.threshold_entry, "Введите пороговое значение"),
-            (self.radius_entry, "Введите радиус поиска"),
-            (self.delay_entry, "Введите задержку"),
+            (self.radius_entry, "Введите радиус поиска")
         ]
         
         for field, msg in required:
@@ -802,7 +913,6 @@ class App(tk.Tk):
             float(self.fwhm_entry.get())
             float(self.threshold_entry.get())
             float(self.radius_entry.get())
-            float(self.delay_entry.get())
         except ValueError:
             messagebox.showerror("Ошибка", "Некорректные числовые значения")
             return False
@@ -824,21 +934,21 @@ class App(tk.Tk):
                 'detection_params': {
                     'fwhm': float(self.fwhm_entry.get()),
                     'threshold': float(self.threshold_entry.get()),
+                    'roundlo': float(self.roundlo_entry.get()),
                 },
                 'catalog_params': {
-                    'search_radius': f"{self.radius_entry.get()} {self.radius_units.get()}",
-                    'request_delay': float(self.delay_entry.get()),
+                    'search_radius': f"{self.radius_entry.get()} {self.radius_units.get()}"
                 }
             }
             
             # Обработка данных
-            sources = self.process_file(params)
+            self.last_results = self.process_file(params)  # Сохраняем результаты
             
             # Вывод результатов
             self.result_text.insert(tk.END, "Первые 5 строк таблицы:\n")
-            self.result_text.insert(tk.END, str(sources[0:5]) + "\n\n")
+            self.result_text.insert(tk.END, str(self.last_results[0:5]) + "\n\n")
             self.result_text.insert(tk.END, "Статистика:\n")
-            self.display_total_results(sources)
+            self.display_total_results(self.last_results)
             
             self.save_btn.config(state=tk.NORMAL)
             
@@ -869,6 +979,9 @@ class App(tk.Tk):
             # Проверка WCS
             check_wcs(hdu.header)
             
+            # Получаем список выбранных каталогов
+            selected_catalogs = [cat for cat, var in self.catalog_vars.items() if var.get()]
+            
             # Основная обработка
             sources = check_catalogs_add2table(
                 pixel_to_wcs(
@@ -876,7 +989,7 @@ class App(tk.Tk):
                     hdu.header
                 ),
                 search_radius=u.Quantity(params['catalog_params']['search_radius']),
-                request_delay=params['catalog_params']['request_delay']
+                catalogs=selected_catalogs
             )
             
             return sources
@@ -885,14 +998,43 @@ class App(tk.Tk):
             raise RuntimeError(f"Ошибка обработки: {str(e)}")
 
     def display_total_results(self, table):
-        stats = [
-            ("🌟 Всего найдено звёзд:", len(table)),
-            ("🌌 Совпадений с Gaia DR3:", (table["Gaia DR3"] != "Not found").sum()),
-            ("✨ Совпадений с VSX:", (table["VSX"] != "Not found").sum()),
-            ("🔍 Не идентифицировано:", ((table["Gaia DR3"] == "Not found") & (table["VSX"] == "Not found")).sum()),
-            ("⚠️ Ошибок запросов:", ((table["Gaia DR3"] == "Ошибка") | (table["VSX"] == "Ошибка")).sum())
-        ]
+        # Получаем список каталогов, которые есть в таблице
+        available_catalogs = [col for col in table.colnames if col in self.catalog_vars]
         
+        # Собираем статистику
+        stats = []
+        
+        # Общее количество звезд
+        stats.append(("🌟 Всего найдено звёзд:", len(table)))
+        
+        # Для каждого каталога добавляем статистику
+        for catalog in available_catalogs:
+            found = ((table[catalog] != "Not found") & (table[catalog] != "Ошибка")).sum()
+            stats.append((f"🌌 Совпадений с {catalog}:", found))
+        
+        # Не идентифицированные объекты (не найдены ни в одном каталоге)
+        not_found_condition = None
+        for catalog in available_catalogs:
+            if not_found_condition is None:
+                not_found_condition = (table[catalog] == "Not found")
+            else:
+                not_found_condition &= (table[catalog] == "Not found")
+        
+        if not_found_condition is not None:
+            stats.append(("🔍 Не идентифицировано:", not_found_condition.sum()))
+        
+        # Ошибки запросов
+        error_condition = None
+        for catalog in available_catalogs:
+            if error_condition is None:
+                error_condition = (table[catalog] == "Ошибка")
+            else:
+                error_condition |= (table[catalog] == "Ошибка")
+        
+        if error_condition is not None:
+            stats.append(("⚠️ Ошибок запросов:", error_condition.sum()))
+        
+        # Выводим результаты
         self.result_text.configure(state='normal')
         self.result_text.delete(1.0, tk.END)
         
@@ -915,25 +1057,32 @@ class App(tk.Tk):
         conf.max_width = -1
         conf.max_columns = -1
         
-        # Выводим результаты
-        output = table['id', 'xcentroid', 'ycentroid', 'Gaia DR3', 'VSX']#, 'mag'
-        for col in ['xcentroid', 'ycentroid']:#, 'mag'
+        # Выводим пример данных только для выбранных каталогов
+        columns = ['id', 'xcentroid', 'ycentroid'] + available_catalogs
+        output = table[columns]
+        for col in ['xcentroid', 'ycentroid']:
             output[col].format = "{:.3f}"
+            
         self.result_text.insert(tk.END, "\nПример данных (первые 5 строк):\n", 'header')
         self.result_text.insert(tk.END, str(output[:5]))
         self.result_text.configure(state='disabled')
         
         
     def save_results(self):
+        if self.last_results is None:
+            messagebox.showerror("Ошибка", "Нет данных для сохранения")
+            return
+            
         filepath = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
         if filepath:
             try:
-                messagebox.showinfo("Успех", f"Файл сохранен:\n{filepath}")
+                self.last_results.write(filepath, overwrite=True, format='csv')
+                messagebox.showinfo("Успех", f"Файл успешно сохранен:\n{filepath}")
             except Exception as e:
-                messagebox.showerror("Ошибка", f"Ошибка сохранения: {str(e)}")
+                messagebox.showerror("Ошибка", f"Ошибка при сохранении файла:\n{str(e)}")
 
     def on_close(self):
         if self.current_hdul:
